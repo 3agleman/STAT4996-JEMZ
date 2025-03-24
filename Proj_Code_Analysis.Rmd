@@ -1,0 +1,128 @@
+---
+title: "Proj_Code_Analysis"
+output: html_document
+date: "2025-03-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("/Users/ellathomasson/Documents/STAT 4996/NSDUH_2023.Rdata")
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+```
+
+```{r}
+povertyDepData<-puf2023_102124[,c("AMDELT",
+                                  "POVERTY3", 
+                                  "NEWRACE2",
+                                  "IRHHSIZ2",
+                                  "MOVSINPYR2",
+                                  "MEDICARE",
+                                  "CAIDCHIP",
+                                  "CHAMPUS",
+                                  "PRVHLTIN",
+                                  "GRPHLTIN",
+                                  "IREDUHIGHST2",
+                                  "WRKSTATWK2"
+)]
+
+names(povertyDepData)<-c("lifetimeDepression",
+                         "povertyThreshold",
+                         "race",
+                         "householdSize",
+                         "timesMovedPastYear",
+                         "medicare",
+                         "medicaid_chip",
+                         "govtHealthcare",
+                         "privateHealthcare",
+                         "employer_unionHealthcare",
+                         "highestEducationCompleted",
+                         "workStatusPastWeek")
+```
+
+
+# analysis
+
+
+## cleaning 
+
+```{r}
+povertyDepData %>%
+  group_by(householdSize) %>%
+  summarize(
+    count = n()
+  )
+```
+
+
+```{r}
+povertyDepData_cleaned <- povertyDepData[!is.na(povertyDepData$lifetimeDepression), ]
+
+povertyDepData_cleaned = povertyDepData_cleaned[povertyDepData_cleaned$timesMovedPastYear < 4,]
+povertyDepData_cleaned <- povertyDepData_cleaned[!is.na(povertyDepData_cleaned$povertyThreshold), ]
+
+povertyDepData_cleaned = povertyDepData_cleaned[,c("lifetimeDepression","race","povertyThreshold","timesMovedPastYear",
+                                                   "highestEducationCompleted","householdSize")]
+
+```
+
+Current Explan Variables: race, povertyThreshold, timesMovedPastYear, highestEducationCompleted, householdSize
+
+## train-test split 
+
+```{r}
+povertyDepData_cleaned$lifetimeDepression <- ifelse(povertyDepData_cleaned$lifetimeDepression == 1, 1, 0) # 1 is "has had depression"
+```
+
+
+```{r}
+
+sample_size <- floor(0.7 * nrow(povertyDepData_cleaned))
+train_indices <- sample(seq_len(nrow(povertyDepData_cleaned)), sample_size)
+
+train_data <- povertyDepData_cleaned[train_indices, ]
+test_data <- povertyDepData_cleaned[-train_indices, ]
+
+```
+
+
+```{r}
+logistic_model <- glm(
+  lifetimeDepression ~ race + povertyThreshold + timesMovedPastYear + highestEducationCompleted + householdSize, 
+  data = train_data, 
+  family = binomial(link = "logit")
+)
+```
+
+
+```{r}
+predictions <- predict(logistic_model, newdata = test_data, type = "response")
+predicted_class <- ifelse(predictions > 0.5, 1, 0)
+```
+
+
+```{r}
+confusion_matrix <- table(
+  Actual = test_data$lifetimeDepression, 
+  Predicted = predicted_class
+)
+print("Confusion Matrix:")
+print(confusion_matrix)
+```
+
+```{r}
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+print(paste("Accuracy:", round(accuracy, 4)))
+```
+
+
+The fact that the classes are unequal in size seems to be causing issues. This may need to be addressed sooner rather than later. 
+
+Also, may need to try more complex model?
+
+
+
