@@ -1,6 +1,8 @@
 ---
 title: "Proj_Code_Analysis"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 date: "2025-03-24"
 ---
 
@@ -27,7 +29,11 @@ povertyDepData<-puf2023_102124[,c("AMDELT",
                                   "PRVHLTIN",
                                   "GRPHLTIN",
                                   "IREDUHIGHST2",
-                                  "WRKSTATWK2"
+                                  "WRKSTATWK2", 
+                                  "CIGREC", 
+                                  "HLTINALC", 
+                                  "HLTINDRG", 
+                                  "CIGREC"
 )]
 
 names(povertyDepData)<-c("lifetimeDepression",
@@ -41,18 +47,27 @@ names(povertyDepData)<-c("lifetimeDepression",
                          "privateHealthcare",
                          "employer_unionHealthcare",
                          "highestEducationCompleted",
-                         "workStatusPastWeek")
+                         "workStatusPastWeek",
+                         "LastSmoke", 
+                         "AlcHealthCare",
+                         "DrgHealthCare", 
+                         "timeSinceLastCigarette")
 ```
 
 
 # analysis
 
 
+```{r}
+sum(is.na(povertyDepData$lifetimeDepression)) / nrow(povertyDepData)
+```
+
+
 ## cleaning 
 
 ```{r}
 povertyDepData %>%
-  group_by(householdSize) %>%
+  group_by(timeSinceLastCigarette) %>%
   summarize(
     count = n()
   )
@@ -65,12 +80,33 @@ povertyDepData_cleaned <- povertyDepData[!is.na(povertyDepData$lifetimeDepressio
 povertyDepData_cleaned = povertyDepData_cleaned[povertyDepData_cleaned$timesMovedPastYear < 4,]
 povertyDepData_cleaned <- povertyDepData_cleaned[!is.na(povertyDepData_cleaned$povertyThreshold), ]
 
-povertyDepData_cleaned = povertyDepData_cleaned[,c("lifetimeDepression","race","povertyThreshold","timesMovedPastYear",
-                                                   "highestEducationCompleted","householdSize")]
+povertyDepData_cleaned = povertyDepData_cleaned[povertyDepData_cleaned$AlcHealthCare < 3,]
+povertyDepData_cleaned = povertyDepData_cleaned[povertyDepData_cleaned$DrgHealthCare < 3,]
+
+povertyDepData_cleaned = povertyDepData_cleaned[,c("lifetimeDepression","race","LastSmoke","timesMovedPastYear",
+                                                   "highestEducationCompleted","medicare","AlcHealthCare","DrgHealthCare","timeSinceLastCigarette")]
+
+
+
+povertyDepData_cleaned$timeSinceLastCigarette <- as.numeric(povertyDepData_cleaned$timeSinceLastCigarette)
+
+
+povertyDepData_cleaned <- povertyDepData_cleaned %>%
+  mutate(
+    timeSinceLastCigarette = case_when(
+      timeSinceLastCigarette == 1 ~ "Past 30 Days",
+      timeSinceLastCigarette %in% c(2, 8, 19) ~ "Past Year",
+      timeSinceLastCigarette %in% c(3, 14, 29, 39) ~ "Past 3 Years", 
+      timeSinceLastCigarette%in% c(4,9) ~ "More than 3 Years",
+      timeSinceLastCigarette == 91 ~ "Never Used",
+      TRUE ~ as.character(timeSinceLastCigarette)  # Keep original value (converted to character)
+    )
+  )
+
 
 ```
 
-Current Explan Variables: race, povertyThreshold, timesMovedPastYear, highestEducationCompleted, householdSize
+Current Explan Variables: "race","LastSmoke","timesMovedPastYear","highestEducationCompleted","medicare","AlcHealthCare","DrgHealthCare"
 
 ## train-test split 
 
@@ -92,7 +128,7 @@ test_data <- povertyDepData_cleaned[-train_indices, ]
 
 ```{r}
 logistic_model <- glm(
-  lifetimeDepression ~ race + povertyThreshold + timesMovedPastYear + highestEducationCompleted + householdSize, 
+  lifetimeDepression ~ race + LastSmoke + timesMovedPastYear + highestEducationCompleted + medicare + AlcHealthCare + DrgHealthCare + timeSinceLastCigarette, 
   data = train_data, 
   family = binomial(link = "logit")
 )
@@ -101,7 +137,9 @@ logistic_model <- glm(
 
 ```{r}
 predictions <- predict(logistic_model, newdata = test_data, type = "response")
-predicted_class <- ifelse(predictions > 0.5, 1, 0)
+predicted_class <- ifelse(predictions > 0.2, 1, 0)
+
+hist(predictions)
 ```
 
 
@@ -112,17 +150,24 @@ confusion_matrix <- table(
 )
 print("Confusion Matrix:")
 print(confusion_matrix)
+
+
+tpr = 531/(546+531)
+tnr = 2898 / (1673+2898) 
+
+tpr
+tnr
 ```
 
 ```{r}
 accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
-print(paste("Accuracy:", round(accuracy, 4)))
+print(paste("Accuracy:", round(accuracy, 4))) 
 ```
 
 
 The fact that the classes are unequal in size seems to be causing issues. This may need to be addressed sooner rather than later. 
 
-Also, may need to try more complex model?
+Also, may need to try more complex model? 
 
 
 
