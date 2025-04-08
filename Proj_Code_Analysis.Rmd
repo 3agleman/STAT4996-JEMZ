@@ -11,10 +11,11 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-load("/Users/ellathomasson/Documents/STAT 4996/NSDUH_2023.Rdata")
+load("INSERT PATH HERE")
 library(dplyr)
 library(ggplot2)
 library(kableExtra)
+library(MASS)
 ```
 
 ```{r}
@@ -163,11 +164,29 @@ tnr
 accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
 print(paste("Accuracy:", round(accuracy, 4))) 
 ```
+## Stepwise selection model (Max)
+```{r}
+stepwise_logistic_model<-stepAIC(logistic_model, direction = "both")
 
+predictions.step <- predict(stepwise_logistic_model, newdata = test_data, type = "response")
+predicted_class.step <- ifelse(predictions.step > 0.2, 1, 0)
+
+confusion_matrix.step <- table(
+  Actual = test_data$lifetimeDepression, 
+  Predicted = predicted_class.step
+)
+confusion_matrix.step
+
+sum(diag(confusion_matrix.step)) / sum(confusion_matrix.step)
+```
 
 The fact that the classes are unequal in size seems to be causing issues. This may need to be addressed sooner rather than later. 
 
 Also, may need to try more complex model? 
+
+## RESOURCES CONSULTED 
+
+https://www.sthda.com/english/articles/37-model-selection-essentials-in-r/154-stepwise-regression-essentials-in-r/
 
 
 
