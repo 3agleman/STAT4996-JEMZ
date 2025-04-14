@@ -127,6 +127,8 @@ test_data <- povertyDepData_cleaned[-train_indices, ]
 ## SMOTE Analysis
 
 ```{r}
+library(smotefamily)
+
 # Checking class distribution
 table(train_data$lifetimeDepression)
 
@@ -148,7 +150,7 @@ smote_result <- SMOTE(
   X = predictors_clean[, !(names(predictors_clean) == "lifetimeDepression")], 
   target = predictors_clean$lifetimeDepression, 
   K = 5,  # Number of nearest neighbors to use
-  dup_size = 2  # Number of synthetic samples to create
+  dup_size = 3  # Number of synthetic samples to create
 )
 
 # Check results
@@ -162,15 +164,11 @@ table(balanced_train$class)
 7812/10573
 
 # before class balance
-2604/10573
+10416/10573
 ```
 
 
 ## Building the Model
-
-```{r}
-print(balanced_train)
-```
 
 
 ```{r}
@@ -238,9 +236,7 @@ print(paste("False Negative Rate:", round(FNR, 4)))
 accuracy <- sum(diag(confusion_matrix.step)) / sum(confusion_matrix.step)
 print(paste("Accuracy:", round(accuracy, 4)))
 
-```
-
-
+``` 
 
 
 
