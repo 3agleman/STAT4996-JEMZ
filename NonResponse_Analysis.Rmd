@@ -1,0 +1,210 @@
+---
+title: "NonResponse_Analysis"
+output: html_document
+date: "2025-04-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# cleaning and reading in
+
+```{r}
+load("/Users/ellathomasson/Documents/STAT 4996/NSDUH_2023.Rdata")
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+library(MASS)
+```
+
+
+
+```{r}
+povertyDepData<-puf2023_102124[,c("AMDELT",
+                                  "POVERTY3", 
+                                  "NEWRACE2",
+                                  "IRHHSIZ2",
+                                  "MOVSINPYR2",
+                                  "MEDICARE",
+                                  "CAIDCHIP",
+                                  "CHAMPUS",
+                                  "PRVHLTIN",
+                                  "GRPHLTIN",
+                                  "IREDUHIGHST2",
+                                  "WRKSTATWK2", 
+                                  "CIGREC", 
+                                  "HLTINALC", 
+                                  "HLTINDRG", 
+                                  "CIGREC"
+)]
+
+names(povertyDepData)<-c("lifetimeDepression",
+                         "povertyThreshold",
+                         "race",
+                         "householdSize",
+                         "timesMovedPastYear",
+                         "medicare",
+                         "medicaid_chip",
+                         "govtHealthcare",
+                         "privateHealthcare",
+                         "employer_unionHealthcare",
+                         "highestEducationCompleted",
+                         "workStatusPastWeek",
+                         "LastSmoke", 
+                         "AlcHealthCare",
+                         "DrgHealthCare", 
+                         "timeSinceLastCigarette")
+```
+
+
+
+```{r}
+
+# povertyDepData_cleaned <- povertyDepData[!is.na(povertyDepData$lifetimeDepression), ]
+povertyDepData_cleaned <- povertyDepData[!is.na(povertyDepData$householdSize), ]
+
+povertyDepData_cleaned = povertyDepData_cleaned[povertyDepData_cleaned$timesMovedPastYear < 4,]
+povertyDepData_cleaned = povertyDepData_cleaned[povertyDepData_cleaned$medicare < 3,]
+
+povertyDepData_cleaned = povertyDepData_cleaned[,c("lifetimeDepression","race","timesMovedPastYear",
+                                                   "highestEducationCompleted","medicare","timeSinceLastCigarette","householdSize")]
+
+
+
+povertyDepData_cleaned$timeSinceLastCigarette <- as.numeric(povertyDepData_cleaned$timeSinceLastCigarette)
+
+
+povertyDepData_cleaned <- povertyDepData_cleaned %>%
+  mutate(
+    timeSinceLastCigarette = case_when(
+      timeSinceLastCigarette == 1 ~ "Past 30 Days",
+      timeSinceLastCigarette %in% c(2, 8, 19) ~ "Past Year",
+      timeSinceLastCigarette %in% c(3, 14, 29, 39) ~ "Past 3 Years", 
+      timeSinceLastCigarette%in% c(4,9) ~ "More than 3 Years",
+      timeSinceLastCigarette == 91 ~ "Never Used",
+      TRUE ~ as.character(timeSinceLastCigarette)  # Keep original value (converted to character)
+    )
+  )
+
+povertyDepData_cleaned <- povertyDepData_cleaned %>%
+  mutate(
+    race = case_when(
+      race == 1 ~ "White",
+      race == 2 ~ "Black/Afr Am",
+      race == 3 ~ "Native Am/AK Native", 
+      race == 4 ~ "Native HI/Other Pac Isl",
+      race == 5 ~ "Asian",
+      race == 6 ~ "more than one race",
+      race == 7 ~ "Hispanic",
+      TRUE ~ as.character(race)  # Keep original value (converted to character)
+    )
+  )
+
+```
+
+
+```{r}
+sum(is.na(povertyDepData_cleaned))/nrow(povertyDepData_cleaned)
+```
+
+
+
+```{r}
+povertyDepData_cleaned$timeSinceLastCigarette = as.factor(povertyDepData_cleaned$timeSinceLastCigarette)
+
+summary(povertyDepData_cleaned)
+```
+
+```{r}
+povertyDepData_cleaned = povertyDepData_cleaned[1:1000,]
+```
+
+
+```{r}
+povertyDepData_cleaned$Respond = ifelse(!is.na(povertyDepData_cleaned$lifetimeDepression), 1, 0) # 1 is "has had depression"
+povertyDepData_cleaned$medicare <- ifelse(povertyDepData_cleaned$medicare == 1, 1, 0) # 1 is "covered by medicare" 
+
+povertyDepData_cleaned$lifetimeDepression = as.factor(povertyDepData_cleaned$lifetimeDepression)
+povertyDepData_cleaned$medicare = as.factor(povertyDepData_cleaned$medicare)
+povertyDepData_cleaned$race = as.factor(povertyDepData_cleaned$race)
+povertyDepData_cleaned$timeSinceLastCigarette = as.factor(povertyDepData_cleaned$timeSinceLastCigarette)
+```
+
+
+
+```{r}
+library(ps)
+library(twang)
+
+# povertyDepData_cleaned = povertyDepData_cleaned[1:200,]
+
+povertyDepData_cleaned_noResp = povertyDepData_cleaned %>%
+  dplyr::select(-lifetimeDepression) 
+
+povertyDepData_cleaned_noResp = as.data.frame(povertyDepData_cleaned_noResp)
+
+ps_fit <- ps(Respond ~ ., data=povertyDepData_cleaned_noResp, estimand='ATE', verbose=FALSE)
+
+povertyDepData_cleaned_noResp$weight <- get.weights(ps_fit, stop.method="es.mean")
+summary(povertyDepData_cleaned_noResp$weight)
+```
+
+
+# weighted model
+
+```{r}
+
+data = povertyDepData_cleaned_noResp
+
+data$lifetimeDepression <- povertyDepData_cleaned$lifetimeDepression
+
+data = data[data$Respond == 1,]
+
+colnames(data)
+
+data$lifetimeDepression <- ifelse(data$lifetimeDepression == 1, 1, 0) # 1 is "has had depression"
+data$lifetimeDepression=as.factor(data$lifetimeDepression)
+
+encoded_data <- data.frame(
+  model.matrix(~ . - lifetimeDepression - 1, data = data)
+)
+
+# Add back the response variable
+encoded_data$lifetimeDepression <- data$lifetimeDepression
+encoded_data$lifetimeDepression <- ifelse(encoded_data$lifetimeDepression == "1", 1, 0)
+
+weighted_model <- glm(lifetimeDepression ~ raceAsian + `raceBlack.Afr.Am` + raceHispanic + `racemore.than.one.race` + 
+    `raceNative.Am.AK.Native` + `raceNative.HI.Other.Pac.Isl` + timesMovedPastYear + highestEducationCompleted + 
+    medicare1 + `timeSinceLastCigaretteNever.Used` + `timeSinceLastCigarettePast.3.Years` + 
+    `timeSinceLastCigarettePast.30.Days` + `timeSinceLastCigarettePast.Year` + 
+    householdSize, 
+                     data = encoded_data,
+                     family = binomial(link = "logit"),
+                     weights = weight)
+
+print(weighted_model$coefficients)
+
+
+
+```
+
+# unweighted model
+
+```{r}
+unweighted_model <- glm(lifetimeDepression ~ raceAsian + `raceBlack.Afr.Am` + raceHispanic + `racemore.than.one.race` + 
+    `raceNative.Am.AK.Native` + `raceNative.HI.Other.Pac.Isl`  + timesMovedPastYear + highestEducationCompleted + 
+    medicare1 + `timeSinceLastCigaretteNever.Used` + `timeSinceLastCigarettePast.3.Years` + 
+    `timeSinceLastCigarettePast.30.Days` + `timeSinceLastCigarettePast.Year` + 
+    householdSize, 
+                     data = encoded_data,
+                     family = binomial(link = "logit"))
+
+print(unweighted_model$coefficients)
+```
+
+
+* coefficients are not very different between the 2 models  
+
+
