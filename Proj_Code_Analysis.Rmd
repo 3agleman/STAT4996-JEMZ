@@ -1,0 +1,244 @@
+---
+title: "Proj_Code_Analysis"
+output:
+  pdf_document: default
+  html_document: default
+date: "2025-03-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("/Users/ellathomasson/Documents/STAT 4996/NSDUH_2023.Rdata")
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+```
+
+```{r}
+povertyDepData<-puf2023_102124[,c("AMDELT",
+                                  "POVERTY3", 
+                                  "NEWRACE2",
+                                  "IRHHSIZ2",
+                                  "MOVSINPYR2",
+                                  "MEDICARE",
+                                  "CAIDCHIP",
+                                  "CHAMPUS",
+                                  "PRVHLTIN",
+                                  "GRPHLTIN",
+                                  "IREDUHIGHST2",
+                                  "WRKSTATWK2", 
+                                  "CIGREC", 
+                                  "HLTINALC", 
+                                  "HLTINDRG", 
+                                  "CIGREC"
+)]
+
+names(povertyDepData)<-c("lifetimeDepression",
+                         "povertyThreshold",
+                         "race",
+                         "householdSize",
+                         "timesMovedPastYear",
+                         "medicare",
+                         "medicaid_chip",
+                         "govtHealthcare",
+                         "privateHealthcare",
+                         "employer_unionHealthcare",
+                         "highestEducationCompleted",
+                         "workStatusPastWeek",
+                         "LastSmoke", 
+                         "AlcHealthCare",
+                         "DrgHealthCare", 
+                         "timeSinceLastCigarette")
+```
+
+
+# analysis
+
+
+```{r}
+sum(is.na(povertyDepData$lifetimeDepression)) / nrow(povertyDepData)
+```
+
+
+## cleaning 
+
+```{r}
+povertyDepData %>%
+  group_by(householdSize) %>%
+  summarize(
+    count = n()
+  )
+```
+
+
+```{r}
+povertyDepData_cleaned <- povertyDepData[!is.na(povertyDepData$lifetimeDepression), ]
+povertyDepData_cleaned <- povertyDepData_cleaned[!is.na(povertyDepData_cleaned$householdSize), ]
+
+povertyDepData_cleaned = povertyDepData_cleaned[povertyDepData_cleaned$timesMovedPastYear < 4,]
+povertyDepData_cleaned = povertyDepData_cleaned[povertyDepData_cleaned$medicare < 3,]
+
+povertyDepData_cleaned = povertyDepData_cleaned[,c("lifetimeDepression","race","timesMovedPastYear",
+                                                   "highestEducationCompleted","medicare","timeSinceLastCigarette","householdSize")]
+
+
+
+povertyDepData_cleaned$timeSinceLastCigarette <- as.numeric(povertyDepData_cleaned$timeSinceLastCigarette)
+
+
+povertyDepData_cleaned <- povertyDepData_cleaned %>%
+  mutate(
+    timeSinceLastCigarette = case_when(
+      timeSinceLastCigarette == 1 ~ "Past 30 Days",
+      timeSinceLastCigarette %in% c(2, 8, 19) ~ "Past Year",
+      timeSinceLastCigarette %in% c(3, 14, 29, 39) ~ "Past 3 Years", 
+      timeSinceLastCigarette%in% c(4,9) ~ "More than 3 Years",
+      timeSinceLastCigarette == 91 ~ "Never Used",
+      TRUE ~ as.character(timeSinceLastCigarette)  
+    )
+  )
+
+povertyDepData_cleaned <- povertyDepData_cleaned %>%
+  mutate(
+    race = case_when(
+      race == 1 ~ "White",
+      race == 2 ~ "Black/Afr Am",
+      race == 3 ~ "Native Am/AK Native", 
+      race == 4 ~ "Native HI/Other Pac Isl",
+      race == 5 ~ "Asian",
+      race == 6 ~ "more than one race",
+      race == 7 ~ "Hispanic",
+      TRUE ~ as.character(race)  # Keep original value (converted to character)
+    )
+  )
+
+```
+
+Current Explan Variables: "lifetimeDepression","race","timesMovedPastYear","highestEducationCompleted","medicare","timeSinceLastCigarette","householdSize"
+
+
+```{r}
+(povertyDepData_cleaned) %>%
+  group_by(timeSinceLastCigarette) %>%
+  summarise(
+    n()
+  )
+```
+
+
+## train-test split 
+
+```{r}
+povertyDepData_cleaned$lifetimeDepression <- ifelse(povertyDepData_cleaned$lifetimeDepression == 1, 1, 0) # 1 is "has had depression"
+povertyDepData_cleaned$medicare <- ifelse(povertyDepData_cleaned$medicare == 1, 1, 0) # 1 is "covered by medicare" 
+
+povertyDepData_cleaned$lifetimeDepression = as.factor(povertyDepData_cleaned$lifetimeDepression)
+povertyDepData_cleaned$medicare = as.factor(povertyDepData_cleaned$medicare)
+
+povertyDepData_cleaned
+
+```
+
+
+```{r}
+
+# One-hot encode the dataset 
+encoded_data <- data.frame(
+  model.matrix(~ . - lifetimeDepression - 1, data = povertyDepData_cleaned)
+)
+
+# Add back the response variable
+encoded_data$lifetimeDepression <- povertyDepData_cleaned$lifetimeDepression
+
+# split into train and test sets
+sample_size <- floor(0.7 * nrow(encoded_data))
+train_indices <- sample(seq_len(nrow(encoded_data)), sample_size)
+train_data <- encoded_data[train_indices, ]
+test_data <- encoded_data[-train_indices, ]
+
+
+```
+
+
+# building the model
+
+```{r}
+
+logistic_model <- glm(lifetimeDepression ~ ., data = train_data, family = "binomial")
+
+```
+
+
+```{r}
+stepwise_logistic_model<-stepAIC(logistic_model, direction = "both")
+```
+
+
+## refitting the model based on the stepwise regression
+
+```{r}
+logistic_model_step <- glm(
+  lifetimeDepression ~ raceAsian + raceBlack.Afr.Am + raceHispanic + 
+    racemore.than.one.race + raceNative.Am.AK.Native + raceNative.HI.Other.Pac.Isl + 
+    timesMovedPastYear + highestEducationCompleted + medicare1 + 
+    timeSinceLastCigaretteNever.Used + timeSinceLastCigarettePast.3.Years + 
+    timeSinceLastCigarettePast.30.Days + timeSinceLastCigarettePast.Year + 
+    householdSize,  
+  data = train_data, 
+  family = binomial(link = "logit")
+)
+```
+
+
+
+```{r}
+predictions <- predict(logistic_model_step, newdata = test_data, type = "response")
+predicted_class <- ifelse(predictions > 0.5, 1, 0)
+
+hist(predictions)
+
+mean(predictions)
+```
+
+
+```{r}
+confusion_matrix <- table(
+  Actual = test_data$lifetimeDepression, 
+  Predicted = predicted_class
+)
+print("Confusion Matrix:")
+print(confusion_matrix)
+
+
+# False Positive Rate
+FPR <- confusion_matrix[1,2] / (confusion_matrix[1,2] + confusion_matrix[1,1])
+print(paste("False Positive Rate:", round(FPR, 4)))
+
+# False Negative Rate
+FNR <- confusion_matrix[2,1] / (confusion_matrix[2,1] + confusion_matrix[2,2])
+print(paste("False Negative Rate:", round(FNR, 4)))
+
+# Calculate accuracy
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+print(paste("Accuracy:", round(accuracy, 4)))
+```
+
+```{r}
+accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+print(paste("Accuracy:", round(accuracy, 4))) 
+```
+
+
+The fact that the classes are unequal in size seems to be causing issues. This may need to be addressed sooner rather than later. 
+
+Also, may need to try more complex model? 
+
+```{r}
+library(car)
+vif(logistic_model_step)
+```
+
+
